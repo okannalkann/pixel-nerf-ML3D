@@ -20,5 +20,4 @@ __pycache__/
 
 # Custom
 checkpoints/
-visuals/
 logs/
