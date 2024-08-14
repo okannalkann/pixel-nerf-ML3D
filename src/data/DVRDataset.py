@@ -15,19 +15,18 @@ class DVRDataset(torch.utils.data.Dataset):
     """
 
     def __init__(
-            self,
-            path,
-            stage="train",
-            list_prefix="softras_",
-            image_size=None,
-            sub_format="shapenet",
-            scale_focal=True,
-            max_imgs=100000,
-            z_near=1.2,
-            z_far=4.0,
-            skip_step=None,
+        self,
+        path,
+        stage="train",
+        list_prefix="softras_",
+        image_size=None,
+        sub_format="shapenet",
+        scale_focal=True,
+        max_imgs=100000,
+        z_near=1.2,
+        z_far=4.0,
+        skip_step=None,
     ):
-
         """
         :param path dataset root path, contains metadata.yml
         :param stage train | val | test
@@ -63,8 +62,6 @@ class DVRDataset(torch.utils.data.Dataset):
 
         self.all_objs = all_objs
         self.stage = stage
-
-        print(f"Dataset initialized with {len(self.all_objs)} objects")
 
         self.image_to_tensor = get_image_to_tensor_balanced()
         self.mask_to_tensor = get_mask_to_tensor()
@@ -107,12 +104,9 @@ class DVRDataset(torch.utils.data.Dataset):
         self.lindisp = False
 
     def __len__(self):
-        print(f"Dataset length: {len(self.all_objs)}")
         return len(self.all_objs)
 
     def __getitem__(self, index):
-        print(f"Accessing dataset index: {index}")
-
         cat, root_dir = self.all_objs[index]
 
         rgb_paths = [
@@ -208,9 +202,9 @@ class DVRDataset(torch.utils.data.Dataset):
                 pose = extr_inv_mtx
 
             pose = (
-                    self._coord_trans_world
-                    @ torch.tensor(pose, dtype=torch.float32)
-                    @ self._coord_trans_cam
+                self._coord_trans_world
+                @ torch.tensor(pose, dtype=torch.float32)
+                @ self._coord_trans_cam
             )
 
             img_tensor = self.image_to_tensor(img)

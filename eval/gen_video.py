@@ -1,8 +1,9 @@
 import sys
 import os
 
-# Bu satır custom_models.py dosyasının bulunduğu dizini belirtir
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 
 import torch
 import torch.nn.functional as F
@@ -13,31 +14,50 @@ import warnings
 from data import get_split_dataset
 from render import NeRFRenderer
 from model import make_model
-<<<<<<< HEAD
 from model.encoder_decoder import EncoderDecoderModel
-=======
-<<<<<<< HEAD
-from model.encoder_decoder import EncoderDecoderModel
-=======
-from custom_models import CustomEncoder, CustomDecoder  # Import custom models
->>>>>>> c64aab0d01e0521b9e1dc910c19773b8f70f0c36
->>>>>>> 2d8c25d50402dac8bf740755a12243584d8e5b29
 from scipy.interpolate import CubicSpline
 import tqdm
 
+
 def extra_args(parser):
-    parser.add_argument("--subset", "-S", "-V", type=int, default=0, help="Subset in data to use")
-    parser.add_argument("--split", type=str, default="train", help="Split of data to use train | val | test")
-    parser.add_argument("--source", "-P", type=str, default="64", help="Source view(s) in image, in increasing order. -1 to do random")
-    parser.add_argument("--num_views", type=int, default=40, help="Number of video frames (rotated views)")
-    parser.add_argument("--elevation", type=float, default=-10.0, help="Elevation angle (negative is above)")
-    parser.add_argument("--scale", type=float, default=1.0, help="Video scale relative to input size")
-    parser.add_argument("--radius", type=float, default=0.0, help="Distance of camera from origin, default is average of z_far, z_near of dataset (only for non-DTU)")
+    parser.add_argument(
+        "--subset", "-S", type=int, default=0, help="Subset in data to use"
+    )
+    parser.add_argument(
+        "--split",
+        type=str,
+        default="train",
+        help="Split of data to use train | val | test",
+    )
+    parser.add_argument(
+        "--source",
+        "-P",
+        type=str,
+        default="64",
+        help="Source view(s) in image, in increasing order. -1 to do random",
+    )
+    parser.add_argument(
+        "--num_views",
+        type=int,
+        default=40,
+        help="Number of video frames (rotated views)",
+    )
+    parser.add_argument(
+        "--elevation",
+        type=float,
+        default=-10.0,
+        help="Elevation angle (negative is above)",
+    )
+    parser.add_argument(
+        "--scale", type=float, default=1.0, help="Video scale relative to input size"
+    )
+    parser.add_argument(
+        "--radius",
+        type=float,
+        default=0.0,
+        help="Distance of camera from origin, default is average of z_far, z_near of dataset (only for non-DTU)",
+    )
     parser.add_argument("--fps", type=int, default=30, help="FPS of video")
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 2d8c25d50402dac8bf740755a12243584d8e5b29
     parser.add_argument(
         "--encoder_mode",
         type=str,
@@ -45,68 +65,48 @@ def extra_args(parser):
         default="passive",
         help="Set encoder-decoder mode to active or passive",
     )
-<<<<<<< HEAD
-=======
-=======
-    # Check if --visual_path and --name are already defined
-    if not any(arg.dest == "visual_path" for arg in parser._actions):
-        parser.add_argument("--visual_path", type=str, default="visuals", help="Path to save the video")
-    if not any(arg.dest == "name" for arg in parser._actions):
-        parser.add_argument("--name", type=str, default="output", help="Name of the output video")
->>>>>>> c64aab0d01e0521b9e1dc910c19773b8f70f0c36
->>>>>>> 2d8c25d50402dac8bf740755a12243584d8e5b29
     return parser
+
 
 args, conf = util.args.parse_args(extra_args)
 args.resume = True
 
 device = util.get_cuda(args.gpu_id[0])
 
-# Debug bilgisi ekleyelim
-print(f"Loading dataset from {args.datadir} with format {args.dataset_format} and split {args.split}")
-
-dset = get_split_dataset(args.dataset_format, args.datadir, want_split=args.split, training=False)
-
-# Veri kümesindeki toplam örnek sayısını kontrol etme
-total_samples = len(dset)
-print(f"Total samples in the dataset: {total_samples}")
-
-if total_samples == 0:
-    raise ValueError("The dataset contains no samples. Please check the dataset path and format.")
+dset = get_split_dataset(
+    args.dataset_format, args.datadir, want_split=args.split, training=False
+)
 
 data = dset[args.subset]
 data_path = data["path"]
 print("Data instance loaded:", data_path)
 
-images = data["images"]  # (NV, 3, 300, 400)
+images = data["images"]  # (NV, 3, H, W)
+
 poses = data["poses"]  # (NV, 4, 4)
 focal = data["focal"]
-# z_near ve z_far değerlerini doğrudan ayarlıyoruz
-z_near = 1.2
-z_far = 4.0
+if isinstance(focal, float):
+    # Dataset implementations are not consistent about
+    # returning float or scalar tensor in case of fx=fy
+    focal = torch.tensor(focal, dtype=torch.float32)
+focal = focal[None]
 
-# focal tensorunu listeye çeviriyoruz
-if isinstance(focal, torch.Tensor):
-    focal = focal.tolist()
+c = data.get("c")
+if c is not None:
+    c = c.to(device=device).unsqueeze(0)
 
-# Debug: Giriş görüntülerinin boyutlarını kontrol edelim
-print(f"Input image size: {images.shape}")
-print(f"z_near: {z_near}, z_far: {z_far}")
-print(f"focal: {focal}")
+NV, _, H, W = images.shape
 
-# Initialize custom encoder and decoder
-encoder = CustomEncoder(input_height=images.shape[2], input_width=images.shape[3]).to(device)
-decoder = CustomDecoder(output_size=(images.shape[2], images.shape[3])).to(device)
-
-<<<<<<< HEAD
-# Load the encoder-decoder model based on the mode
-encoder_decoder = EncoderDecoderModel().to(device)
-encoder_decoder.load_state_dict(torch.load(os.path.abspath('eval/encoder_decoder.pth'), map_location=device))
-
-if args.encoder_mode == "active":
-    encoder_decoder.train()  # Set to active mode
-else:
-    encoder_decoder.eval()  # Set to passive mode
+if args.scale != 1.0:
+    Ht = int(H * args.scale)
+    Wt = int(W * args.scale)
+    if abs(Ht / args.scale - H) > 1e-10 or abs(Wt / args.scale - W) > 1e-10:
+        warnings.warn(
+            "Inexact scaling, please check {} times ({}, {}) is integral".format(
+                args.scale, H, W
+            )
+        )
+    H, W = Ht, Wt
 
 # Load the encoder-decoder model based on the mode
 encoder_decoder = EncoderDecoderModel().to(device)
@@ -119,32 +119,21 @@ else:
 
 net = make_model(conf["model"]).to(device=device)
 net.load_weights(args)
-=======
-# Encode images
-encoded_images = encoder(images.to(device))
->>>>>>> c64aab0d01e0521b9e1dc910c19773b8f70f0c36
 
-# Decode images
-decoded_images = decoder(encoded_images)
+renderer = NeRFRenderer.from_conf(
+    conf["renderer"], lindisp=dset.lindisp, eval_batch_size=args.ray_batch_size,
+).to(device=device)
 
-# Initialize renderer and model
-renderer = NeRFRenderer.from_conf(conf)
-renderer = renderer.to(device)  # Ensure the renderer is moved to the correct device
+render_par = renderer.bind_parallel(net, args.gpu_id, simple_output=True).eval()
 
-# Assume `model` is defined and loaded properly
-model = make_model(conf["model"]).to(device)
+# Get the distance from camera to origin
+z_near = dset.z_near
+z_far = dset.z_far
 
-# Bind the renderer to the model
-wrapped_renderer = renderer.bind_parallel(model, gpus=[args.gpu_id], simple_output=True)
+print("Generating rays")
 
-# Render the novel views
-all_rgb_frames = []
-for pose in tqdm.tqdm(poses, desc="Rendering frames"):
-    rays = util.gen_rays(pose, focal, z_near, z_far, images.shape[2], images.shape[3])  # Generate rays for the given pose
-    rgb, _ = wrapped_renderer(rays.to(device))  # Perform rendering
-    all_rgb_frames.append(rgb.cpu().numpy())
+dtu_format = hasattr(dset, "sub_format") and dset.sub_format == "dtu"
 
-<<<<<<< HEAD
 if dtu_format:
     print("Using DTU camera trajectory")
     # Use hard-coded pose interpolation from IDR for DTU
@@ -303,9 +292,3 @@ img_np = np.hstack((*img_np,))
 imageio.imwrite(viewimg_path, img_np)
 
 print("Wrote to", vid_path, "view:", viewimg_path)
-=======
-# Save the video
-output_path = os.path.join(args.visual_path, f"{args.name}.mp4")
-imageio.mimwrite(output_path, all_rgb_frames, fps=args.fps)
-print(f"Video saved to {output_path}")
->>>>>>> c64aab0d01e0521b9e1dc910c19773b8f70f0c36
