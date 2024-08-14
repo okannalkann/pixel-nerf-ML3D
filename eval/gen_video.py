@@ -14,6 +14,7 @@ import warnings
 from data import get_split_dataset
 from render import NeRFRenderer
 from model import make_model
+from model.encoder_decoder import EncoderDecoderModel
 from scipy.interpolate import CubicSpline
 import tqdm
 
@@ -57,6 +58,13 @@ def extra_args(parser):
         help="Distance of camera from origin, default is average of z_far, z_near of dataset (only for non-DTU)",
     )
     parser.add_argument("--fps", type=int, default=30, help="FPS of video")
+    parser.add_argument(
+        "--encoder_mode",
+        type=str,
+        choices=["active", "passive"],
+        default="passive",
+        help="Set encoder-decoder mode to active or passive",
+    )
     return parser
 
 
@@ -99,6 +107,15 @@ if args.scale != 1.0:
             )
         )
     H, W = Ht, Wt
+
+# Load the encoder-decoder model based on the mode
+encoder_decoder = EncoderDecoderModel().to(device)
+encoder_decoder.load_state_dict(torch.load(os.path.abspath('eval/encoder_decoder.pth'), map_location=device))
+
+if args.encoder_mode == "active":
+    encoder_decoder.train()  # Set to active mode
+else:
+    encoder_decoder.eval()  # Set to passive mode
 
 net = make_model(conf["model"]).to(device=device)
 net.load_weights(args)
@@ -219,7 +236,39 @@ with torch.no_grad():
     rgb_fine = torch.cat(all_rgb_fine)
     # rgb_fine (V*H*W, 3)
 
-    frames = rgb_fine.view(-1, H, W, 3)
+    if args.encoder_mode == "active":
+        # Obtain original image dimensions from the dataset
+        NV, _, H_orig, W_orig = images.shape  # NV: Number of views, H_orig: Original height, W_orig: Original width
+
+        # Apply scaling to the original dimensions if a scale factor is provided
+        if args.scale != 1.0:
+            H = int(H_orig * args.scale)  # Scaled height
+            W = int(W_orig * args.scale)  # Scaled width
+        else:
+            H = H_orig  # Use original height if no scaling
+            W = W_orig  # Use original width if no scaling
+
+        # Debugging information to check dimensions
+        print(f"Original H: {H_orig}, W: {W_orig}")  # Output the original dimensions
+        print(f"Scaled H: {H}, W: {W}")  # Output the scaled dimensions (after applying args.scale)
+        print(f"rgb_fine.shape: {rgb_fine.shape}")  # Output the shape of rgb_fine (number of pixels and channels)
+        print(f"rgb_fine.numel(): {rgb_fine.numel()}, expected: {H * W * 3 * rgb_fine.shape[0]}")  # Compare the actual and expected number of elements
+
+        # Calculate the expected number of elements based on the scaled dimensions and the number of frames
+        expected_numel = H * W * 3 * rgb_fine.shape[0]
+
+        # Check if the actual number of elements matches the expected number
+        '''if rgb_fine.numel() != expected_numel:
+            raise RuntimeError(f"Mismatch in reshaping. rgb_fine has {rgb_fine.numel()} elements, expected {expected_numel}")'''
+
+        # Reshape rgb_fine to match the expected dimensions for frames
+        frames = rgb_fine.view(-1, H, W, 3)
+
+        # Pass the frames through the encoder-decoder model for upsampling, if needed
+        frames = encoder_decoder(frames.permute(0, 3, 1, 2).contiguous()).permute(0, 2, 3, 1).contiguous()
+    
+    else:
+        frames = rgb_fine.view(-1, H, W, 3)
 
 print("Writing video")
 vid_name = "{:04}".format(args.subset)
@@ -232,6 +281,7 @@ vid_path = os.path.join(args.visual_path, args.name, "video" + vid_name + ".mp4"
 viewimg_path = os.path.join(
     args.visual_path, args.name, "video" + vid_name + "_view.jpg"
 )
+
 imageio.mimwrite(
     vid_path, (frames.cpu().numpy() * 255).astype(np.uint8), fps=args.fps, quality=8
 )
